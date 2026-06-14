@@ -3,7 +3,6 @@ package com.example.demo.service;
 import com.example.demo.entity.Order;
 import com.example.demo.entity.OrderItem;
 import com.example.demo.entity.OrderStatusLog;
-import com.example.demo.entity.Product;
 import com.example.demo.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
