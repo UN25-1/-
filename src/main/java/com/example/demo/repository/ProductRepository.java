@@ -2,7 +2,11 @@ package com.example.demo.repository;
 
 import com.example.demo.entity.Product;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -33,4 +37,21 @@ public interface ProductRepository extends JpaRepository<Product, Integer> {
 
     /** 按名称搜索商品（跨商家） */
     List<Product> findByNameContainingAndIsAvailableTrue(String name);
+
+    /**
+     * 原子扣减库存（并发安全）
+     * WHERE stock >= quantity 保证不会超卖，受影响行数 = 0 时表示库存不足
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Product p SET p.stock = p.stock - :quantity WHERE p.id = :productId AND p.stock >= :quantity")
+    int decrementStock(@Param("productId") Integer productId, @Param("quantity") Integer quantity);
+
+    /**
+     * 原子回补库存
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Product p SET p.stock = p.stock + :quantity WHERE p.id = :productId")
+    int incrementStock(@Param("productId") Integer productId, @Param("quantity") Integer quantity);
 }

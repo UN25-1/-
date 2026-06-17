@@ -105,4 +105,14 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
      */
     @Query("SELECT o.merchantId, SUM(o.totalAmount) FROM Order o GROUP BY o.merchantId")
     List<Object[]> sumAmountByMerchantIdGrouped();
+
+    /**
+     * 统计当月各商家已完成订单数
+     */
+    @Query("SELECT o.merchantId, COUNT(o) FROM Order o " +
+           "WHERE o.orderStatus = 'completed' " +
+           "AND o.createdAt >= :startOfMonth AND o.createdAt < :startOfNextMonth " +
+           "GROUP BY o.merchantId")
+    List<Object[]> countCompletedThisMonthGrouped(@Param("startOfMonth") java.time.LocalDateTime startOfMonth,
+                                                   @Param("startOfNextMonth") java.time.LocalDateTime startOfNextMonth);
 }

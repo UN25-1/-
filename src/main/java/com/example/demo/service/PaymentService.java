@@ -32,15 +32,21 @@ public class PaymentService {
     private final OrderRepository orderRepository;
     private final OrderStatusLogRepository statusLogRepository;
     private final MerchantDetailRepository merchantDetailRepository;
+    private final ProductRepository productRepository;
+    private final OrderItemRepository orderItemRepository;
 
     public PaymentService(PaymentRepository paymentRepository,
                           OrderRepository orderRepository,
                           OrderStatusLogRepository statusLogRepository,
-                          MerchantDetailRepository merchantDetailRepository) {
+                          MerchantDetailRepository merchantDetailRepository,
+                          ProductRepository productRepository,
+                          OrderItemRepository orderItemRepository) {
         this.paymentRepository = paymentRepository;
         this.orderRepository = orderRepository;
         this.statusLogRepository = statusLogRepository;
         this.merchantDetailRepository = merchantDetailRepository;
+        this.productRepository = productRepository;
+        this.orderItemRepository = orderItemRepository;
     }
 
     // ==================== 发起支付 ====================
@@ -301,9 +307,30 @@ public class PaymentService {
         order.setOrderStatus("pending");
         orderRepository.save(order);
 
+        // 支付成功后扣减库存（原子操作，防止超卖）
+        deductOrderStock(order);
+
         // 写入状态日志
         writeStatusLog(order.getId(), oldStatus, "pending", userId,
                 PaymentResponse.payMethodDesc(payment.getPayMethod()) + "支付成功，交易号：" + payment.getTransactionNo());
+    }
+
+    /**
+     * 扣减订单中所有商品的库存（原子操作，防止超卖）
+     * 任一商品库存不足时抛出 BusinessException(409)，事务回滚
+     */
+    private void deductOrderStock(Order order) {
+        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+        for (OrderItem item : items) {
+            int affected = productRepository.decrementStock(item.getProductId(), item.getQuantity());
+            if (affected == 0) {
+                String productName = productRepository.findById(item.getProductId())
+                        .map(Product::getName)
+                        .orElse("ID:" + item.getProductId());
+                throw new BusinessException(409, "商品[" + productName
+                        + "]库存不足，支付失败，请稍后重试");
+            }
+        }
     }
 
     /**

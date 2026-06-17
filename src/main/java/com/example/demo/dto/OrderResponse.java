@@ -29,6 +29,8 @@ public class OrderResponse {
     private String note;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    /** 剩余可取消秒数（仅 pending_payment / pending 状态时有值，超时后为 0） */
+    private Long remainingCancelSeconds;
     /** 订单明细 */
     private List<OrderItemResponse> items;
     /** 订单状态流转日志 */
@@ -128,6 +130,9 @@ public class OrderResponse {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public Long getRemainingCancelSeconds() { return remainingCancelSeconds; }
+    public void setRemainingCancelSeconds(Long remainingCancelSeconds) { this.remainingCancelSeconds = remainingCancelSeconds; }
 
     public List<OrderItemResponse> getItems() { return items; }
     public void setItems(List<OrderItemResponse> items) { this.items = items; }

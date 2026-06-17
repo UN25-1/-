@@ -1,5 +1,6 @@
 package com.example.demo.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
@@ -30,6 +31,22 @@ public class ProductRequest {
     @Max(value = 999999, message = "库存超出上限")
     private Integer stock;
 
+    // ========== 分量信息（必填） ==========
+
+    /** 分量值，如 500、250 */
+    @NotBlank(message = "分量不能为空，请填写净含量")
+    @JsonAlias({"portionValue", "portion_value"})
+    private String portionValue;
+
+    /** 分量单位，如 g、kg、ml、L、份 */
+    @NotBlank(message = "分量单位不能为空")
+    @JsonAlias({"portionUnit", "portion_unit"})
+    private String portionUnit;
+
+    /** 规格说明，如 "1袋"、"2瓶装" */
+    @JsonAlias({"portionSpec", "portion_spec"})
+    private String portionSpec;
+
     public Integer getCategoryId() { return categoryId; }
     public void setCategoryId(Integer categoryId) { this.categoryId = categoryId; }
 
@@ -50,4 +67,13 @@ public class ProductRequest {
 
     public Integer getStock() { return stock; }
     public void setStock(Integer stock) { this.stock = stock; }
+
+    public String getPortionValue() { return portionValue; }
+    public void setPortionValue(String portionValue) { this.portionValue = portionValue; }
+
+    public String getPortionUnit() { return portionUnit; }
+    public void setPortionUnit(String portionUnit) { this.portionUnit = portionUnit; }
+
+    public String getPortionSpec() { return portionSpec; }
+    public void setPortionSpec(String portionSpec) { this.portionSpec = portionSpec; }
 }

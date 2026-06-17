@@ -25,6 +25,11 @@ public class ProductResponse {
     private Integer stock;
     private LocalDateTime createdAt;
 
+    // 分量信息（从 description 中解析）
+    private String portionValue;
+    private String portionUnit;
+    private String portionSpec;
+
     public static ProductResponse from(Product product) {
         ProductResponse resp = new ProductResponse();
         resp.setId(product.getId());
@@ -75,4 +80,13 @@ public class ProductResponse {
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public String getPortionValue() { return portionValue; }
+    public void setPortionValue(String portionValue) { this.portionValue = portionValue; }
+
+    public String getPortionUnit() { return portionUnit; }
+    public void setPortionUnit(String portionUnit) { this.portionUnit = portionUnit; }
+
+    public String getPortionSpec() { return portionSpec; }
+    public void setPortionSpec(String portionSpec) { this.portionSpec = portionSpec; }
 }

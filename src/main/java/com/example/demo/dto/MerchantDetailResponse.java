@@ -24,6 +24,9 @@ public class MerchantDetailResponse {
     private BigDecimal deliveryFee;
     private BigDecimal minOrderAmount;
     private BigDecimal rating;
+    private Boolean enabled;
+    /** 当月已完成订单数，自动统计，不可手动修改 */
+    private Integer monthlySales;
 
     public static MerchantDetailResponse from(MerchantDetail detail) {
         MerchantDetailResponse resp = new MerchantDetailResponse();
@@ -39,6 +42,7 @@ public class MerchantDetailResponse {
         resp.setDeliveryFee(detail.getDeliveryFee());
         resp.setMinOrderAmount(detail.getMinOrderAmount());
         resp.setRating(detail.getRating());
+        resp.setEnabled(detail.getEnabled());
         return resp;
     }
 
@@ -77,4 +81,10 @@ public class MerchantDetailResponse {
 
     public BigDecimal getRating() { return rating; }
     public void setRating(BigDecimal rating) { this.rating = rating; }
+
+    public Boolean getEnabled() { return enabled; }
+    public void setEnabled(Boolean enabled) { this.enabled = enabled; }
+
+    public Integer getMonthlySales() { return monthlySales; }
+    public void setMonthlySales(Integer monthlySales) { this.monthlySales = monthlySales; }
 }

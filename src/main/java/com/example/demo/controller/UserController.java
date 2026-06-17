@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -71,6 +72,30 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success("密码修改成功，请重新登录", null));
     }
 
+    /**
+     * 上传头像
+     * POST /api/user/avatar
+     */
+    @PostMapping("/avatar")
+    public ResponseEntity<ApiResponse<Map<String, String>>> uploadAvatar(
+            @RequestParam("file") MultipartFile file) {
+        String url = userService.saveAvatar(getCurrentUserId(), file);
+        Map<String, String> result = Map.of("url", url);
+        return ResponseEntity.ok(ApiResponse.success("头像上传成功", result));
+    }
+
+    // ==================== 账户管理 ====================
+
+    /**
+     * 删除账户（软删除，需要JWT认证）
+     * DELETE /api/user/account
+     */
+    @DeleteMapping("/account")
+    public ResponseEntity<ApiResponse<Void>> deleteAccount() {
+        userService.deleteAccount(getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success("账户已删除", null));
+    }
+
     // ==================== 地址管理 ====================
 
     /**
@@ -115,6 +140,19 @@ public class UserController {
     public ResponseEntity<ApiResponse<Void>> deleteAddress(@PathVariable Integer addressId) {
         userService.deleteAddress(getCurrentUserId(), addressId);
         return ResponseEntity.ok(ApiResponse.success("地址删除成功", null));
+    }
+
+    /**
+     * 批量删除地址
+     * DELETE /api/user/addresses/batch
+     * Body: {"ids": [1, 2, 3]}
+     */
+    @DeleteMapping("/addresses/batch")
+    public ResponseEntity<ApiResponse<Void>> deleteAddressesBatch(
+            @RequestBody Map<String, List<Integer>> body) {
+        List<Integer> ids = body.get("ids");
+        userService.deleteAddressesBatch(getCurrentUserId(), ids);
+        return ResponseEntity.ok(ApiResponse.success("已删除 " + ids.size() + " 个地址", null));
     }
 
     /**

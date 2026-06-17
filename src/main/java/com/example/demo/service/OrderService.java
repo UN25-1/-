@@ -16,7 +16,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -31,6 +33,9 @@ public class OrderService {
 
     /** 允许取消的状态：待支付、待处理 */
     private static final Set<String> CANCELLABLE_STATUSES = Set.of("pending_payment", "pending");
+
+    /** 订单取消时限（分钟），超时后不可取消 */
+    private static final long CANCEL_WINDOW_MINUTES = 5;
 
     /** 商家可拒绝的订单状态 */
     private static final Set<String> REJECTABLE_STATUSES = Set.of("pending");
@@ -157,15 +162,11 @@ public class OrderService {
                 Product product = productRepository.findById(item.getProductId())
                         .orElseThrow(() -> new BusinessException(404, "商品[" + item.getProductId() + "]不存在"));
 
-                // 校验库存
+                // 校验库存（仅校验，不扣减 — 支付成功后才扣减）
                 if (product.getStock() < item.getQuantity()) {
                     throw new BusinessException(400, "商品[" + product.getName()
                             + "]库存不足（剩余" + product.getStock() + "，需要" + item.getQuantity() + "）");
                 }
-
-                // 扣减库存
-                product.setStock(product.getStock() - item.getQuantity());
-                productRepository.save(product);
 
                 OrderItem orderItem = new OrderItem(
                         order.getId(),
@@ -217,18 +218,30 @@ public class OrderService {
     // ==================== 取消订单（含自动退款） ====================
 
     /**
-     * 用户取消订单（仅 pending_payment 或 pending 状态可取消）
+     * 用户取消订单（仅 pending_payment 或 pending 状态可取消，且需在创建后 5 分钟内）
      * 
      * 取消时自动处理退款：
      * - pending 状态订单（已支付）：自动触发退款流程
      * - pending_payment 状态订单（未支付）：直接取消，无需退款
+     *
+     * 并发安全：通过 @Version 乐观锁 + 状态前置校验（cancellableStatus + @Transactional）
+     * 防止重复取消
      */
     @Transactional
     public OrderResponse cancelOrder(Integer orderId, Integer userId) {
         Order order = validateOrderOwnership(orderId, userId);
 
+        // 校验订单状态是否允许取消
         if (!CANCELLABLE_STATUSES.contains(order.getOrderStatus())) {
             throw new BusinessException(400, "当前订单状态[" + order.getOrderStatus() + "]不允许取消");
+        }
+
+        // 校验取消时效：订单创建超过 5 分钟不可取消
+        LocalDateTime expireTime = order.getCreatedAt().plusMinutes(CANCEL_WINDOW_MINUTES);
+        if (LocalDateTime.now().isAfter(expireTime)) {
+            long minutesSinceCreation = ChronoUnit.MINUTES.between(order.getCreatedAt(), LocalDateTime.now());
+            throw new BusinessException(400,
+                    "订单已超过" + CANCEL_WINDOW_MINUTES + "分钟取消时限（已过" + minutesSinceCreation + "分钟），无法取消");
         }
 
         String oldStatus = order.getOrderStatus();
@@ -238,22 +251,21 @@ public class OrderService {
             paymentService.processRefund(orderId, userId, "用户主动取消订单");
         }
 
-        // 更新订单状态
+        // 更新订单状态（@Version 乐观锁在 save 时自动校验版本号，防止并发）
         order.setOrderStatus("cancelled");
-        orderRepository.save(order);
+        order = orderRepository.save(order);  // 若版本号冲突抛出 OptimisticLockException
 
         writeStatusLog(orderId, oldStatus, "cancelled", userId, null);
 
-        // 恢复库存：将订单中的商品数量加回库存
+        // 恢复库存：原子回补（并发安全）
         List<OrderItem> orderItems = orderItemRepository.findByOrderId(orderId);
         for (OrderItem item : orderItems) {
-            productRepository.findById(item.getProductId()).ifPresent(product -> {
-                product.setStock(product.getStock() + item.getQuantity());
-                productRepository.save(product);
-            });
+            productRepository.incrementStock(item.getProductId(), item.getQuantity());
         }
 
-        log.info("订单已取消（含退款联动+库存恢复）：orderId={}, userId={}", orderId, userId);
+        log.info("订单已取消：orderId={}, userId={}, 原状态={}, 距创建{}分钟",
+                orderId, userId, oldStatus,
+                ChronoUnit.MINUTES.between(order.getCreatedAt(), LocalDateTime.now()));
         return getOrderDetail(orderId);
     }
 
@@ -288,13 +300,10 @@ public class OrderService {
         writeStatusLog(orderId, oldStatus, "rejected", userId,
                 reason != null ? reason : "商家已拒单");
 
-        // 恢复库存
+        // 恢复库存：原子回补
         List<OrderItem> orderItems = orderItemRepository.findByOrderId(orderId);
         for (OrderItem item : orderItems) {
-            productRepository.findById(item.getProductId()).ifPresent(product -> {
-                product.setStock(product.getStock() + item.getQuantity());
-                productRepository.save(product);
-            });
+            productRepository.incrementStock(item.getProductId(), item.getQuantity());
         }
 
         log.info("商家拒单（含退款联动+库存恢复）：orderId={}, merchantId={}, reason={}",
@@ -596,6 +605,17 @@ public class OrderService {
         resp.setNote(order.getNote());
         resp.setCreatedAt(order.getCreatedAt());
         resp.setUpdatedAt(order.getUpdatedAt());
+
+        // 计算剩余可取消秒数（仅待取消状态）
+        if (CANCELLABLE_STATUSES.contains(order.getOrderStatus()) && order.getCreatedAt() != null) {
+            long elapsedSeconds = ChronoUnit.SECONDS.between(order.getCreatedAt(), LocalDateTime.now());
+            long windowSeconds = CANCEL_WINDOW_MINUTES * 60;
+            long remaining = windowSeconds - elapsedSeconds;
+            resp.setRemainingCancelSeconds(Math.max(remaining, 0));
+        } else {
+            resp.setRemainingCancelSeconds(null);
+        }
+
         return resp;
     }
 }

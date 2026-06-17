@@ -23,6 +23,7 @@ public class RiderDetailResponse {
     private String status;
     private BigDecimal rating;
     private Integer completedOrders;
+    private Boolean enabled;
 
     public static RiderDetailResponse from(RiderDetail detail, User user) {
         RiderDetailResponse resp = new RiderDetailResponse();
@@ -39,6 +40,7 @@ public class RiderDetailResponse {
         resp.setStatus(detail.getStatus());
         resp.setRating(detail.getRating());
         resp.setCompletedOrders(detail.getCompletedOrders());
+        resp.setEnabled(detail.getEnabled());
         return resp;
     }
 
@@ -75,4 +77,7 @@ public class RiderDetailResponse {
 
     public Integer getCompletedOrders() { return completedOrders; }
     public void setCompletedOrders(Integer completedOrders) { this.completedOrders = completedOrders; }
+
+    public Boolean getEnabled() { return enabled; }
+    public void setEnabled(Boolean enabled) { this.enabled = enabled; }
 }

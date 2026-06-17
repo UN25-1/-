@@ -7,6 +7,7 @@ import com.example.demo.entity.ProductCategory;
 import com.example.demo.exception.BusinessException;
 import com.example.demo.repository.CartItemRepository;
 import com.example.demo.repository.MerchantDetailRepository;
+import com.example.demo.repository.OrderRepository;
 import com.example.demo.repository.ProductCategoryRepository;
 import com.example.demo.repository.ProductRepository;
 import org.slf4j.Logger;
@@ -14,7 +15,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
+import java.time.LocalDateTime;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -30,15 +32,18 @@ public class ProductService {
     private final ProductCategoryRepository categoryRepository;
     private final MerchantDetailRepository merchantDetailRepository;
     private final CartItemRepository cartItemRepository;
+    private final OrderRepository orderRepository;
 
     public ProductService(ProductRepository productRepository,
                           ProductCategoryRepository categoryRepository,
                           MerchantDetailRepository merchantDetailRepository,
-                          CartItemRepository cartItemRepository) {
+                          CartItemRepository cartItemRepository,
+                          OrderRepository orderRepository) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.merchantDetailRepository = merchantDetailRepository;
         this.cartItemRepository = cartItemRepository;
+        this.orderRepository = orderRepository;
     }
 
     // ==================== 分类管理（商家端） ====================
@@ -135,7 +140,9 @@ public class ProductService {
         product.setMerchantId(merchantId);
         product.setCategoryId(request.getCategoryId());
         product.setName(request.getName());
-        product.setDescription(request.getDescription());
+        // 分量信息编码存入 description（分量必填，由 @Valid 校验）
+        product.setDescription(encodePortion(request.getPortionValue(), request.getPortionUnit(),
+                request.getPortionSpec(), request.getDescription()));
         product.setPrice(request.getPrice());
         product.setImageUrl(request.getImageUrl());
         product.setIsAvailable(request.getIsAvailable() != null ? request.getIsAvailable() : true);
@@ -165,7 +172,11 @@ public class ProductService {
         }
 
         product.setName(request.getName());
-        if (request.getDescription() != null)
+        // 分量信息编码存入 description（分量必填，@Valid 校验）
+        if (request.getPortionValue() != null || request.getPortionUnit() != null)
+            product.setDescription(encodePortion(request.getPortionValue(), request.getPortionUnit(),
+                    request.getPortionSpec(), request.getDescription()));
+        else if (request.getDescription() != null)
             product.setDescription(request.getDescription());
         product.setPrice(request.getPrice());
         if (request.getImageUrl() != null)
@@ -223,7 +234,29 @@ public class ProductService {
         } else {
             merchants = merchantDetailRepository.findAllByOrderByRatingDesc();
         }
-        return merchants.stream().map(MerchantDetailResponse::from).collect(Collectors.toList());
+        List<MerchantDetailResponse> list = merchants.stream()
+                .map(MerchantDetailResponse::from).collect(Collectors.toList());
+
+        // 填充当月实际销量
+        fillMonthlySales(list);
+
+        return list;
+    }
+
+    /** 从订单表统计当月各商家已完成订单数，填充到响应列表 */
+    private void fillMonthlySales(List<MerchantDetailResponse> list) {
+        if (list.isEmpty()) return;
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime startOfMonth = now.withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime startOfNextMonth = startOfMonth.plusMonths(1);
+        List<Object[]> counts = orderRepository.countCompletedThisMonthGrouped(startOfMonth, startOfNextMonth);
+        Map<Integer, Integer> salesMap = new HashMap<>();
+        for (Object[] row : counts) {
+            salesMap.put((Integer) row[0], ((Long) row[1]).intValue());
+        }
+        for (MerchantDetailResponse resp : list) {
+            resp.setMonthlySales(salesMap.getOrDefault(resp.getId(), 0));
+        }
     }
 
     /**
@@ -365,16 +398,55 @@ public class ProductService {
     private ProductResponse buildProductResponse(Product product) {
         ProductResponse resp = ProductResponse.from(product);
 
-        // 附带商家名称
+        // 从 description 解析分量信息并剥离前缀
+        parsePortionFromDescription(resp);
+
         merchantDetailRepository.findById(product.getMerchantId())
                 .ifPresent(m -> resp.setMerchantName(m.getShopName()));
 
-        // 附带分类名称
         if (product.getCategoryId() != null) {
             categoryRepository.findById(product.getCategoryId())
                     .ifPresent(c -> resp.setCategoryName(c.getName()));
         }
 
         return resp;
+    }
+
+    // ---------- 分量编码/解析 ----------
+
+    private static final String P_SEP = "|---|";
+
+    /** 将分量 JSON 与实际描述拼接存入 description */
+    String encodePortion(String value, String unit, String spec, String rawDesc) {
+        String json = "{\"v\":\"" + (value != null ? value : "") + "\",\"u\":\"" +
+                (unit != null ? unit : "") + "\",\"s\":\"" + (spec != null ? spec : "") + "\"}";
+        return json + P_SEP + (rawDesc != null ? rawDesc : "");
+    }
+
+    private void parsePortionFromDescription(ProductResponse resp) {
+        String desc = resp.getDescription();
+        if (desc == null || !desc.contains(P_SEP)) {
+            resp.setPortionValue(""); resp.setPortionUnit(""); resp.setPortionSpec("");
+            return;
+        }
+        int idx = desc.indexOf(P_SEP);
+        String jsonPart = desc.substring(0, idx);
+        resp.setDescription(desc.substring(idx + P_SEP.length()));
+        try {
+            resp.setPortionValue(extractVal(jsonPart, "v"));
+            resp.setPortionUnit(extractVal(jsonPart, "u"));
+            resp.setPortionSpec(extractVal(jsonPart, "s"));
+        } catch (Exception e) {
+            resp.setPortionValue(""); resp.setPortionUnit(""); resp.setPortionSpec("");
+        }
+    }
+
+    private String extractVal(String json, String key) {
+        String s = "\"" + key + "\":\"";
+        int a = json.indexOf(s);
+        if (a < 0) return "";
+        a += s.length();
+        int b = json.indexOf("\"", a);
+        return b < 0 ? "" : json.substring(a, b);
     }
 }
