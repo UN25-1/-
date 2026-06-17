@@ -24,7 +24,7 @@ public class ApiResponse<T> {
         return new ApiResponse<>(200, "操作成功", data);
     }
 
-    /** 成功响应（自定义消息） */
+    /** 成功响应（自定义消息 + 数据） */
     public static <T> ApiResponse<T> success(String message, T data) {
         return new ApiResponse<>(200, message, data);
     }

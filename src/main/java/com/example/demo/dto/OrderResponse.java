@@ -31,6 +31,14 @@ public class OrderResponse {
     private LocalDateTime updatedAt;
     /** 剩余可取消秒数（仅 pending_payment / pending 状态时有值，超时后为 0） */
     private Long remainingCancelSeconds;
+    /** 异常类型（仅 exception 状态时有值）：delivery_timeout/rider_reported/payment_failed/stock_shortage/address_error/refund_error/other */
+    private String exceptionType;
+    /** 异常原因描述（仅 exception 状态时有值） */
+    private String exceptionReason;
+    /** 异常发生时间（仅 exception 状态时有值） */
+    private LocalDateTime exceptionTime;
+    /** 异常处理建议（仅 exception 状态时有值） */
+    private String exceptionSuggestion;
     /** 订单明细 */
     private List<OrderItemResponse> items;
     /** 订单状态流转日志 */
@@ -133,6 +141,15 @@ public class OrderResponse {
 
     public Long getRemainingCancelSeconds() { return remainingCancelSeconds; }
     public void setRemainingCancelSeconds(Long remainingCancelSeconds) { this.remainingCancelSeconds = remainingCancelSeconds; }
+
+    public String getExceptionType() { return exceptionType; }
+    public void setExceptionType(String exceptionType) { this.exceptionType = exceptionType; }
+    public String getExceptionReason() { return exceptionReason; }
+    public void setExceptionReason(String exceptionReason) { this.exceptionReason = exceptionReason; }
+    public LocalDateTime getExceptionTime() { return exceptionTime; }
+    public void setExceptionTime(LocalDateTime exceptionTime) { this.exceptionTime = exceptionTime; }
+    public String getExceptionSuggestion() { return exceptionSuggestion; }
+    public void setExceptionSuggestion(String exceptionSuggestion) { this.exceptionSuggestion = exceptionSuggestion; }
 
     public List<OrderItemResponse> getItems() { return items; }
     public void setItems(List<OrderItemResponse> items) { this.items = items; }

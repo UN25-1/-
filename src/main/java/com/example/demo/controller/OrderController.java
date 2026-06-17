@@ -94,6 +94,18 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success("订单已标记为拒收", order));
     }
 
+    // ==================== 删除订单 ====================
+
+    /**
+     * 用户删除订单（仅终态可删除）
+     * DELETE /api/orders/{id}
+     */
+    @DeleteMapping("/api/orders/{id}")
+    public ResponseEntity<ApiResponse<Void>> deleteOrder(@PathVariable Integer id) {
+        orderService.deleteOrder(id, getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success("订单已删除", null));
+    }
+
     // ==================== 查询：用户视角 ====================
 
     /**

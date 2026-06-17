@@ -72,7 +72,7 @@ public class FileUploadService {
         if (originalName != null && originalName.contains(".")) {
             extension = originalName.substring(originalName.lastIndexOf("."));
         }
-        String savedName = UUID.randomUUID().toString() + extension;
+        String savedName = UUID.randomUUID() + extension;
 
         // 保存文件到磁盘
         try {

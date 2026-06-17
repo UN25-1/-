@@ -885,3 +885,17 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     INDEX idx_operator (operator_id),
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='管理员操作审计日志';
+
+-- 文件：demo2/qualification_schema.sql，在 food 数据库中运行
+CREATE TABLE IF NOT EXISTS `qualification_documents` (
+                                                         `id` INT AUTO_INCREMENT PRIMARY KEY,
+                                                         `user_id` INT NOT NULL COMMENT '申请人用户ID',
+                                                         `user_role` VARCHAR(20) NOT NULL COMMENT '角色：merchant / rider',
+                                                         `doc_type` VARCHAR(30) NOT NULL COMMENT '证件类型：business_license / id_card / health_cert',
+                                                         `doc_url` VARCHAR(500) NOT NULL COMMENT '证件图片路径',
+                                                         `review_status` VARCHAR(20) NOT NULL DEFAULT 'pending' COMMENT '审核状态：pending/approved/rejected',
+                                                         `review_remark` VARCHAR(500) DEFAULT NULL COMMENT '审核备注/驳回原因',
+                                                         `reviewed_at` TIMESTAMP NULL DEFAULT NULL COMMENT '审核时间',
+                                                         `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                                         KEY `idx_user_role_status` (`user_id`, `user_role`, `review_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

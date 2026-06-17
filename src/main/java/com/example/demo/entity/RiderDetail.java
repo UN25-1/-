@@ -35,7 +35,7 @@ public class RiderDetail {
 
     @Column(nullable = false,
             columnDefinition = "ENUM('offline','online','busy') DEFAULT 'offline'")
-    private String status;
+    private String status = "offline";
 
     @Column(precision = 3, scale = 2)
     private BigDecimal rating = new BigDecimal("5.00");

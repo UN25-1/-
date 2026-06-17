@@ -127,6 +127,18 @@ public class RiderController {
         return ResponseEntity.ok(ApiResponse.success("配送异常已上报，订单标记为异常状态", order));
     }
 
+    // ==================== 骑手收入 ====================
+
+    /**
+     * 获取骑手收入统计（累计 + 今日 + 完成单数）
+     * GET /api/rider/earnings
+     */
+    @GetMapping("/earnings")
+    public ResponseEntity<ApiResponse<RiderEarningsResponse>> getEarnings() {
+        RiderEarningsResponse earnings = riderService.getEarnings(getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(earnings));
+    }
+
     // ==================== 骑手订单查询 ====================
 
     /**

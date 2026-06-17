@@ -4,10 +4,12 @@ import com.example.demo.entity.Order;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -79,6 +81,9 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     /** 统计指定状态集合的订单数量 */
     long countByOrderStatusIn(Collection<String> orderStatuses);
 
+    /** 统计某骑手活跃订单数（排除终态：delivered/completed/cancelled/rejected/exception） */
+    long countByRiderIdAndOrderStatusNotIn(Integer riderId, Collection<String> terminalStatuses);
+
     // ==================== 聚合统计查询（替代内存全表遍历） ====================
 
     /**
@@ -115,4 +120,36 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
            "GROUP BY o.merchantId")
     List<Object[]> countCompletedThisMonthGrouped(@Param("startOfMonth") java.time.LocalDateTime startOfMonth,
                                                    @Param("startOfNextMonth") java.time.LocalDateTime startOfNextMonth);
+
+    // ==================== 骑手收入相关查询 ====================
+
+    /**
+     * 抢单专用：悲观锁查询（SELECT ... FOR UPDATE），防止并发抢单竞态
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT o FROM Order o WHERE o.id = :id")
+    Order findByIdWithPessimisticLock(@Param("id") Integer id);
+
+    /**
+     * 统计骑手配送收入：已完成/已送达订单的配送费总和
+     */
+    @Query("SELECT COALESCE(SUM(o.deliveryFee), 0) FROM Order o " +
+           "WHERE o.riderId = :riderId AND o.orderStatus IN ('delivered', 'completed')")
+    java.math.BigDecimal sumDeliveryFeeByRiderId(@Param("riderId") Integer riderId);
+
+    /**
+     * 统计骑手今日配送收入
+     */
+    @Query("SELECT COALESCE(SUM(o.deliveryFee), 0) FROM Order o " +
+           "WHERE o.riderId = :riderId AND o.orderStatus IN ('delivered', 'completed') " +
+           "AND o.updatedAt >= :todayStart")
+    java.math.BigDecimal sumDeliveryFeeByRiderIdToday(@Param("riderId") Integer riderId,
+                                                       @Param("todayStart") java.time.LocalDateTime todayStart);
+
+    /**
+     * 统计骑手累计完成订单数
+     */
+    @Query("SELECT COUNT(o) FROM Order o " +
+           "WHERE o.riderId = :riderId AND o.orderStatus IN ('delivered', 'completed')")
+    long countCompletedByRiderId(@Param("riderId") Integer riderId);
 }

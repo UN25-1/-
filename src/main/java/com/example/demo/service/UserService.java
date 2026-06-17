@@ -1,11 +1,15 @@
 package com.example.demo.service;
 
 import com.example.demo.dto.*;
+import com.example.demo.entity.MerchantDetail;
 import com.example.demo.entity.Order;
+import com.example.demo.entity.RiderDetail;
 import com.example.demo.entity.User;
 import com.example.demo.entity.UserAddress;
 import com.example.demo.exception.BusinessException;
+import com.example.demo.repository.MerchantDetailRepository;
 import com.example.demo.repository.OrderRepository;
+import com.example.demo.repository.RiderDetailRepository;
 import com.example.demo.repository.UserAddressRepository;
 import com.example.demo.repository.UserRepository;
 import org.slf4j.Logger;
@@ -37,15 +41,21 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserAddressRepository addressRepository;
     private final OrderRepository orderRepository;
+    private final MerchantDetailRepository merchantDetailRepository;
+    private final RiderDetailRepository riderDetailRepository;
     private final BCryptPasswordEncoder passwordEncoder;
 
     public UserService(UserRepository userRepository,
                        UserAddressRepository addressRepository,
                        OrderRepository orderRepository,
+                       MerchantDetailRepository merchantDetailRepository,
+                       RiderDetailRepository riderDetailRepository,
                        BCryptPasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.addressRepository = addressRepository;
         this.orderRepository = orderRepository;
+        this.merchantDetailRepository = merchantDetailRepository;
+        this.riderDetailRepository = riderDetailRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -80,6 +90,20 @@ public class UserService {
         }
 
         user = userRepository.save(user);
+
+        // 自动创建商家/骑手详情记录（enabled=false，待审核）
+        if ("merchant".equals(role)) {
+            MerchantDetail detail = new MerchantDetail();
+            detail.setUserId(user.getId());
+            detail.setShopName(username + "的店铺");
+            detail.setEnabled(false);
+            merchantDetailRepository.save(detail);
+        } else if ("rider".equals(role)) {
+            RiderDetail detail = new RiderDetail(user.getId());
+            detail.setRealName(username);
+            detail.setEnabled(false);
+            riderDetailRepository.save(detail);
+        }
         log.info("用户注册成功：id={}, username={}, role={}, status={}",
                 user.getId(), user.getUsername(), role, user.getStatus());
 
@@ -102,15 +126,10 @@ public class UserService {
 
         User user = userOpt.get();
 
-        // 检查账户状态
+        // 检查账户状态（仅禁止已禁用的账户登录）
         if (user.getStatus() == null || user.getStatus() == 0) {
             log.warn("登录失败：用户 [{}] 已被禁用, status={}", username, user.getStatus());
             throw new BusinessException(403, "账户已被禁用，请联系管理员");
-        }
-
-        if (user.getStatus() == 2) {
-            log.warn("登录失败：用户 [{}] 待审核中, status={}", username, user.getStatus());
-            throw new BusinessException(403, "您的账号正在审核中，请耐心等待管理员审核通过");
         }
 
         // BCrypt密码验证

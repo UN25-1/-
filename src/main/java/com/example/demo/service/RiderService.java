@@ -3,6 +3,7 @@ package com.example.demo.service;
 import com.example.demo.dto.OrderResponse;
 import com.example.demo.dto.RiderDetailRequest;
 import com.example.demo.dto.RiderDetailResponse;
+import com.example.demo.dto.RiderEarningsResponse;
 import com.example.demo.entity.*;
 import com.example.demo.exception.BusinessException;
 import com.example.demo.repository.*;
@@ -34,6 +35,12 @@ public class RiderService {
 
     /** 骑手可上报异常的订单状态：配送中 */
     private static final Set<String> EXCEPTION_REPORTABLE_STATUSES = Set.of("delivering");
+
+    /** 骑手最大同时接单数 */
+    private static final int MAX_ACTIVE_ORDERS = 5;
+
+    /** 终态订单状态（不计入活跃订单数） */
+    private static final Set<String> TERMINAL_STATUSES = Set.of("delivered", "completed", "cancelled", "rejected", "exception");
 
     private final RiderDetailRepository riderDetailRepository;
     private final OrderRepository orderRepository;
@@ -135,48 +142,61 @@ public class RiderService {
     // ==================== 接单（抢单） ====================
 
     /**
-     * 骑手抢单：将订单 rider_id 设为自己，状态保持不变
-     * - 仅 online 状态可接单
+     * 骑手抢单：将订单 rider_id 设为自己，最多同时接5单
+     * - 非 offline 状态即可接单（online/busy 均可）
+     * - 活跃订单数 >= 5 时拒绝接单
      * - 订单状态必须为 prepared 且尚无骑手
+     * - 使用悲观锁（SELECT ... FOR UPDATE）防止并发抢单竞态
      */
     @Transactional
     public OrderResponse grabOrder(Integer orderId, Integer userId) {
-        // 1. 校验骑手在线状态
+        // 1. 校验骑手状态（离线不可接单）
         RiderDetail rider = getOrCreateRiderDetail(userId);
-        if (!"online".equals(rider.getStatus())) {
-            throw new BusinessException(400, "当前状态为[" + rider.getStatus() + "]，请先切换为 online 才能接单");
+        if ("offline".equals(rider.getStatus())) {
+            throw new BusinessException(400, "当前状态为[offline]，请先切换为 online 才能接单");
         }
 
-        // 2. 校验骑手档案完整性
-        if (rider.getRealName() == null || rider.getIdCard() == null) {
-            throw new BusinessException(400, "请先完善骑手认证信息（真实姓名、身份证号）");
+        // 2. 校验骑手已通过管理员审核（资质认证通过即 enabled=true）
+        if (Boolean.FALSE.equals(rider.getEnabled())) {
+            throw new BusinessException(400, "您的账号尚未通过审核，请先完成资质认证");
         }
 
-        // 3. 查询并校验订单
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new BusinessException(404, "订单不存在"));
+        // 3. 校验活跃订单数（最多同时接5单）
+        long activeCount = orderRepository.countByRiderIdAndOrderStatusNotIn(rider.getId(), TERMINAL_STATUSES);
+        if (activeCount >= MAX_ACTIVE_ORDERS) {
+            throw new BusinessException(400, "您已有" + activeCount + "单配送中，最多同时接" + MAX_ACTIVE_ORDERS + "单");
+        }
+
+        // 4. 悲观锁查询订单（SELECT ... FOR UPDATE），防止并发抢单
+        Order order = orderRepository.findByIdWithPessimisticLock(orderId);
+        if (order == null) {
+            throw new BusinessException(404, "订单不存在或刚被其他骑手抢走");
+        }
 
         if (!GRABBABLE_STATUSES.contains(order.getOrderStatus())) {
             throw new BusinessException(400, "订单当前状态[" + order.getOrderStatus() + "]不允许接单");
         }
 
         if (order.getRiderId() != null) {
-            throw new BusinessException(400, "该订单已被其他骑手接单");
+            throw new BusinessException(400, "该订单已被其他骑手抢单");
         }
 
-        // 4. 分配骑手
+        // 5. 分配骑手，接单即进入配送（prepared → delivering）
+        String oldStatus = order.getOrderStatus();
         order.setRiderId(rider.getId());
+        order.setOrderStatus("delivering");
         orderRepository.save(order);
 
-        // 5. 骑手状态切换为 busy
+        // 6. 骑手状态切换为 busy
         rider.setStatus("busy");
         riderDetailRepository.save(rider);
 
-        // 6. 写入状态日志
-        writeStatusLog(orderId, order.getOrderStatus(), order.getOrderStatus(),
-                userId, "骑手[" + userId + "]接单");
+        // 7. 写入状态日志
+        writeStatusLog(orderId, oldStatus, "delivering",
+                userId, "骑手[" + userId + "]接单，开始配送（当前活跃" + (activeCount + 1) + "/" + MAX_ACTIVE_ORDERS + "）");
 
-        log.info("骑手接单成功：orderId={}, riderId={}, userId={}", orderId, rider.getId(), userId);
+        log.info("骑手接单成功：orderId={}, riderId={}, userId={}, status=delivering, active={}/{}",
+                orderId, rider.getId(), userId, activeCount + 1, MAX_ACTIVE_ORDERS);
 
         return buildOrderDetail(orderId);
     }
@@ -231,13 +251,16 @@ public class RiderService {
         rider.setCompletedOrders(rider.getCompletedOrders() + 1);
         riderDetailRepository.save(rider);
 
-        // 送达后自动恢复在线状态，允许继续接单
+        // 送达后检查是否还有活跃订单：全部完成则恢复 online
         if ("busy".equals(rider.getStatus())) {
-            rider.setStatus("online");
-            riderDetailRepository.save(rider);
+            long remaining = orderRepository.countByRiderIdAndOrderStatusNotIn(rider.getId(), TERMINAL_STATUSES);
+            if (remaining == 0) {
+                rider.setStatus("online");
+                riderDetailRepository.save(rider);
+            }
         }
 
-        log.info("骑手送达：orderId={}, riderId={}, completedOrders={}, status=delivered, riderStatus恢复为online",
+        log.info("骑手送达：orderId={}, riderId={}, completedOrders={}, status=delivered",
                 orderId, riderId, rider.getCompletedOrders());
         return buildOrderDetail(orderId);
     }
@@ -265,11 +288,14 @@ public class RiderService {
         writeStatusLog(orderId, oldStatus, "exception", userId,
                 reason != null ? reason : "骑手上报配送异常");
 
-        // 恢复骑手为在线状态，允许继续接单
+        // 异常上报后检查是否还有活跃订单：全部完成则恢复 online
         RiderDetail rider = getOrCreateRiderDetail(userId);
         if ("busy".equals(rider.getStatus())) {
-            rider.setStatus("online");
-            riderDetailRepository.save(rider);
+            long remaining = orderRepository.countByRiderIdAndOrderStatusNotIn(rider.getId(), TERMINAL_STATUSES);
+            if (remaining == 0) {
+                rider.setStatus("online");
+                riderDetailRepository.save(rider);
+            }
         }
 
         log.warn("骑手上报配送异常：orderId={}, riderId={}, reason={}", orderId, riderId, reason);
@@ -288,6 +314,29 @@ public class RiderService {
             orderPage = orderRepository.findByRiderIdOrderByCreatedAtDesc(riderId, pageable);
         }
         return orderPage.map(order -> buildSimpleOrderResponse(order));
+    }
+
+    // ==================== 骑手收入 ====================
+
+    /**
+     * 获取骑手收入统计（累计 + 今日）
+     * 收入来源：已送达/已完成订单的配送费（deliveryFee）
+     */
+    public RiderEarningsResponse getEarnings(Integer userId) {
+        Integer riderId = resolveRiderIdFromUserId(userId);
+
+        // 今日零点
+        java.time.LocalDateTime todayStart = java.time.LocalDate.now().atStartOfDay();
+
+        java.math.BigDecimal totalEarnings = orderRepository.sumDeliveryFeeByRiderId(riderId);
+        java.math.BigDecimal todayEarnings = orderRepository.sumDeliveryFeeByRiderIdToday(riderId, todayStart);
+        long completedOrders = orderRepository.countCompletedByRiderId(riderId);
+
+        RiderEarningsResponse earnings = new RiderEarningsResponse();
+        earnings.setTotalEarnings(totalEarnings != null ? totalEarnings : java.math.BigDecimal.ZERO);
+        earnings.setTodayEarnings(todayEarnings != null ? todayEarnings : java.math.BigDecimal.ZERO);
+        earnings.setCompletedOrders(completedOrders);
+        return earnings;
     }
 
     // ==================== 内部校验方法 ====================

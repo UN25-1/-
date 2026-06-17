@@ -80,19 +80,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String username = jwtUtils.getUsernameFromToken(token);
             String role = jwtUtils.getRoleFromToken(token);
 
-            // 实时校验：商家/骑手是否被管理员禁用
+            // 实时校验：商家/骑手是否被管理员禁用（白名单：资质上传相关接口放行）
             if ("merchant".equalsIgnoreCase(role)) {
                 merchantDetailRepository.findByUserId(userId).ifPresent(detail -> {
                     if (Boolean.FALSE.equals(detail.getEnabled())) {
-                        log.warn("商家已被禁用，拒绝访问: userId={}, username={}", userId, username);
-                        throw new AccountDisabledException("您的店铺已被平台禁用，请联系管理员");
+                        // 允许未入驻商家访问资质上传相关接口
+                        if (!isQualificationEndpoint(request)) {
+                            log.warn("商家已被禁用，拒绝访问: userId={}, username={}", userId, username);
+                            throw new AccountDisabledException("您的店铺已被平台禁用，请联系管理员");
+                        }
                     }
                 });
             } else if ("rider".equalsIgnoreCase(role)) {
                 riderDetailRepository.findByUserId(userId).ifPresent(detail -> {
                     if (Boolean.FALSE.equals(detail.getEnabled())) {
-                        log.warn("骑手已被禁用，拒绝访问: userId={}, username={}", userId, username);
-                        throw new AccountDisabledException("您的骑手账号已被禁用，请联系管理员");
+                        if (!isQualificationEndpoint(request)) {
+                            log.warn("骑手已被禁用，拒绝访问: userId={}, username={}", userId, username);
+                            throw new AccountDisabledException("您的骑手账号已被禁用，请联系管理员");
+                        }
                     }
                 });
             }
@@ -137,6 +142,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private String getShortToken(String token) {
         if (token.length() <= 20) return token;
         return token.substring(0, 10) + "..." + token.substring(token.length() - 10);
+    }
+
+    /** 判断是否为资质上传相关接口（未入驻商家/骑手的白名单） */
+    private boolean isQualificationEndpoint(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri.startsWith("/api/qualification/") || uri.startsWith("/api/user/profile");
     }
 
     /** 内部异常：商家/骑手被禁用时抛出，在 doFilterInternal 中统一捕获处理 */

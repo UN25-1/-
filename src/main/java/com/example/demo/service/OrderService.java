@@ -6,6 +6,7 @@ import com.example.demo.dto.OrderRequest;
 import com.example.demo.dto.OrderResponse;
 import com.example.demo.entity.*;
 import com.example.demo.exception.BusinessException;
+import com.example.demo.exception.ExceptionCategory;
 import com.example.demo.repository.*;
 import com.example.demo.entity.RiderDetail;
 import org.slf4j.Logger;
@@ -40,9 +41,13 @@ public class OrderService {
     /** 商家可拒绝的订单状态 */
     private static final Set<String> REJECTABLE_STATUSES = Set.of("pending");
 
+    /** 允许删除的订单状态（仅终态可删除） */
+    private static final Set<String> DELETABLE_STATUSES = Set.of("completed", "cancelled", "rejected", "exception", "refunded");
+
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final OrderStatusLogRepository statusLogRepository;
+    private final PaymentRepository paymentRepository;
     private final UserRepository userRepository;
     private final UserAddressRepository addressRepository;
     private final MerchantDetailRepository merchantDetailRepository;
@@ -54,6 +59,7 @@ public class OrderService {
     public OrderService(OrderRepository orderRepository,
                         OrderItemRepository orderItemRepository,
                         OrderStatusLogRepository statusLogRepository,
+                        PaymentRepository paymentRepository,
                         UserRepository userRepository,
                         UserAddressRepository addressRepository,
                         MerchantDetailRepository merchantDetailRepository,
@@ -64,6 +70,7 @@ public class OrderService {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.statusLogRepository = statusLogRepository;
+        this.paymentRepository = paymentRepository;
         this.userRepository = userRepository;
         this.addressRepository = addressRepository;
         this.merchantDetailRepository = merchantDetailRepository;
@@ -334,6 +341,45 @@ public class OrderService {
         return getOrderDetail(orderId);
     }
 
+    // ==================== 删除订单 ====================
+
+    /**
+     * 用户删除订单（仅终态可删除：completed/cancelled/rejected/exception/refunded）
+     *
+     * 级联清理：先删关联的 payment → order_items → order_status_logs，最后删订单
+     */
+    @Transactional
+    public void deleteOrder(Integer orderId, Integer userId) {
+        Order order = validateOrderOwnership(orderId, userId);
+
+        if (!DELETABLE_STATUSES.contains(order.getOrderStatus())) {
+            throw new BusinessException(400,
+                    "当前订单状态[" + order.getOrderStatus() + "]不允许删除，仅已完成/已取消/已拒收/异常/已退款订单可删除");
+        }
+
+        // 1. 删除支付记录
+        paymentRepository.findByOrderId(orderId).ifPresent(paymentRepository::delete);
+
+        // 2. 删除订单明细
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        if (!items.isEmpty()) {
+            orderItemRepository.deleteAll(items);
+        }
+
+        // 3. 删除状态日志
+        List<OrderStatusLog> statusLogs = statusLogRepository.findByOrderIdOrderByCreatedAtAsc(orderId);
+        if (!statusLogs.isEmpty()) {
+            statusLogRepository.deleteAll(statusLogs);
+        }
+
+        // 4. 删除订单
+        orderRepository.delete(order);
+
+        log.info("订单已删除：orderId={}, userId={}, status={}", orderId, userId, order.getOrderStatus());
+    }
+
+    // ==================== 商家接单 ====================
+
     /**
      * 商家接单：pending → preparing
      * @param userId 当前登录的商家用户ID，内部解析为 merchantId
@@ -416,7 +462,13 @@ public class OrderService {
             orderPage = orderRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable);
         }
 
-        return orderPage.map(order -> buildOrderResponse(order, null, null, null));
+        return orderPage.map(order -> {
+            OrderResponse resp = buildOrderResponse(order, null, null, null);
+            if ("exception".equals(order.getOrderStatus())) {
+                populateExceptionInfoFromRepository(resp, order.getId());
+            }
+            return resp;
+        });
     }
 
     // ==================== 查询：商家视角 ====================
@@ -434,7 +486,13 @@ public class OrderService {
             orderPage = orderRepository.findByMerchantIdOrderByCreatedAtDesc(merchantId, pageable);
         }
 
-        return orderPage.map(order -> buildOrderResponse(order, null, null, null));
+        return orderPage.map(order -> {
+            OrderResponse resp = buildOrderResponse(order, null, null, null);
+            if ("exception".equals(order.getOrderStatus())) {
+                populateExceptionInfoFromRepository(resp, order.getId());
+            }
+            return resp;
+        });
     }
 
     /**
@@ -525,7 +583,41 @@ public class OrderService {
         OrderResponse resp = buildOrderResponse(order, merchant, user, riderUser);
         resp.setItems(itemResponses);
         resp.setStatusLogs(logEntries);
+
+        // 异常订单：填充异常类型、原因、时间、处理建议
+        if ("exception".equals(order.getOrderStatus())) {
+            populateExceptionInfo(resp, statusLogs);
+        }
+
         return resp;
+    }
+
+    // ==================== 异常订单信息填充（无需DB结构变更） ====================
+
+    /**
+     * 从已加载的状态日志列表中提取异常信息并填充到 OrderResponse
+     */
+    private void populateExceptionInfo(OrderResponse resp, List<OrderStatusLog> statusLogs) {
+        // 找到导致异常的那条日志（to_status = 'exception'）
+        OrderStatusLog exceptionLog = statusLogs.stream()
+                .filter(log -> "exception".equals(log.getToStatus()))
+                .reduce((first, second) -> second) // 取最后一条
+                .orElse(null);
+
+        String remark = exceptionLog != null ? exceptionLog.getRemark() : null;
+
+        resp.setExceptionType(ExceptionCategory.classify(remark));
+        resp.setExceptionReason(remark != null ? remark : "未知异常");
+        resp.setExceptionTime(exceptionLog != null ? exceptionLog.getCreatedAt() : null);
+        resp.setExceptionSuggestion(ExceptionCategory.getSuggestion(resp.getExceptionType()));
+    }
+
+    /**
+     * 从数据库按需加载异常信息（用于列表视图，避免全量查 statusLogs）
+     */
+    private void populateExceptionInfoFromRepository(OrderResponse resp, Integer orderId) {
+        List<OrderStatusLog> statusLogs = statusLogRepository.findByOrderIdOrderByCreatedAtAsc(orderId);
+        populateExceptionInfo(resp, statusLogs);
     }
 
     // ==================== 内部校验方法 ====================
