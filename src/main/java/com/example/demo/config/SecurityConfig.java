@@ -84,8 +84,8 @@ public class SecurityConfig {
                 // 商品浏览接口 —— 公开访问（用户无需登录即可浏览商家与商品）
                 .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
 
-                // 商家评价浏览 —— 公开访问（商家详情页展示评价）
-                .requestMatchers(HttpMethod.GET, "/api/review/merchant/**").permitAll()
+                // 评价浏览 —— 公开访问（用户可在订单详情页查看骑手评价）
+                .requestMatchers(HttpMethod.GET, "/api/review/merchant/**", "/api/review/rider/**").permitAll()
 
                 // Token刷新与登出需要携带Token
                 .requestMatchers("/api/auth/refresh", "/api/auth/logout").authenticated()

@@ -584,6 +584,9 @@ public class OrderService {
         resp.setItems(itemResponses);
         resp.setStatusLogs(logEntries);
 
+        // 提取送达图片URL
+        resp.setDeliveryImageUrl(extractDeliveryImageUrl(statusLogs));
+
         // 异常订单：填充异常类型、原因、时间、处理建议
         if ("exception".equals(order.getOrderStatus())) {
             populateExceptionInfo(resp, statusLogs);
@@ -647,6 +650,29 @@ public class OrderService {
     }
 
     // ==================== 内部工具方法 ====================
+
+    /**
+     * 从状态日志中提取骑手送达证明图片URL
+     */
+    private String extractDeliveryImageUrl(List<OrderStatusLog> statusLogs) {
+        if (statusLogs == null) return null;
+        return statusLogs.stream()
+                .filter(log -> "delivered".equals(log.getToStatus()) && log.getRemark() != null)
+                .map(log -> {
+                    String remark = log.getRemark();
+                    int start = remark.indexOf("[IMAGE:");
+                    if (start >= 0) {
+                        int end = remark.indexOf("]", start);
+                        if (end > start) {
+                            return remark.substring(start + 7, end);
+                        }
+                    }
+                    return null;
+                })
+                .filter(url -> url != null)
+                .reduce((first, second) -> second)
+                .orElse(null);
+    }
 
     /**
      * 通过 userId 解析 merchantId（查询 merchant_details 表）

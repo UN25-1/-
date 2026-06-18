@@ -1,6 +1,7 @@
 package com.example.demo.controller;
 
 import com.example.demo.dto.*;
+import com.example.demo.service.FileUploadService;
 import com.example.demo.service.RiderService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -8,6 +9,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -22,9 +24,11 @@ import java.util.Map;
 public class RiderController {
 
     private final RiderService riderService;
+    private final FileUploadService fileUploadService;
 
-    public RiderController(RiderService riderService) {
+    public RiderController(RiderService riderService, FileUploadService fileUploadService) {
         this.riderService = riderService;
+        this.fileUploadService = fileUploadService;
     }
 
     private Integer getCurrentUserId() {
@@ -106,12 +110,14 @@ public class RiderController {
     // ==================== 送达 ====================
 
     /**
-     * 骑手送达：delivering → delivered
+     * 骑手送达：delivering → delivered（可附带送达证明图片URL）
      * PUT /api/rider/orders/{id}/deliver
      */
     @PutMapping("/orders/{id}/deliver")
-    public ResponseEntity<ApiResponse<OrderResponse>> deliverOrder(@PathVariable Integer id) {
-        OrderResponse order = riderService.deliverOrder(id, getCurrentUserId());
+    public ResponseEntity<ApiResponse<OrderResponse>> deliverOrder(
+            @PathVariable Integer id,
+            @RequestParam(required = false) String deliveryImageUrl) {
+        OrderResponse order = riderService.deliverOrder(id, getCurrentUserId(), deliveryImageUrl);
         return ResponseEntity.ok(ApiResponse.success("已送达", order));
     }
 
@@ -137,6 +143,25 @@ public class RiderController {
     public ResponseEntity<ApiResponse<RiderEarningsResponse>> getEarnings() {
         RiderEarningsResponse earnings = riderService.getEarnings(getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success(earnings));
+    }
+
+    // ==================== 送达照片上传 ====================
+
+    /**
+     * 骑手上传送达证明图片（≤10MB）
+     * POST /api/rider/upload/delivery-photo
+     */
+    @PostMapping("/upload/delivery-photo")
+    public ResponseEntity<ApiResponse<Map<String, String>>> uploadDeliveryPhoto(
+            @RequestParam("file") MultipartFile file) {
+        ImageUploadResponse uploadResult = fileUploadService.uploadImage(file);
+        Map<String, String> result = Map.of(
+                "url", uploadResult.getUrl(),
+                "originalName", uploadResult.getOriginalName(),
+                "savedName", uploadResult.getSavedName(),
+                "size", String.valueOf(uploadResult.getSize())
+        );
+        return ResponseEntity.ok(ApiResponse.success("上传成功", result));
     }
 
     // ==================== 骑手订单查询 ====================

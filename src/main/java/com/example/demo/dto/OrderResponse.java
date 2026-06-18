@@ -39,6 +39,8 @@ public class OrderResponse {
     private LocalDateTime exceptionTime;
     /** 异常处理建议（仅 exception 状态时有值） */
     private String exceptionSuggestion;
+    /** 骑手送达图片URL（骑手上传的送达证明照片） */
+    private String deliveryImageUrl;
     /** 订单明细 */
     private List<OrderItemResponse> items;
     /** 订单状态流转日志 */
@@ -150,6 +152,9 @@ public class OrderResponse {
     public void setExceptionTime(LocalDateTime exceptionTime) { this.exceptionTime = exceptionTime; }
     public String getExceptionSuggestion() { return exceptionSuggestion; }
     public void setExceptionSuggestion(String exceptionSuggestion) { this.exceptionSuggestion = exceptionSuggestion; }
+
+    public String getDeliveryImageUrl() { return deliveryImageUrl; }
+    public void setDeliveryImageUrl(String deliveryImageUrl) { this.deliveryImageUrl = deliveryImageUrl; }
 
     public List<OrderItemResponse> getItems() { return items; }
     public void setItems(List<OrderItemResponse> items) { this.items = items; }

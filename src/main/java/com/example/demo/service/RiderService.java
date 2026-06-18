@@ -230,9 +230,10 @@ public class RiderService {
 
     /**
      * 骑手送达：delivering → delivered，自动累加 completed_orders
+     * @param deliveryImageUrl 骑手上传的送达证明图片URL（可选）
      */
     @Transactional
-    public OrderResponse deliverOrder(Integer orderId, Integer userId) {
+    public OrderResponse deliverOrder(Integer orderId, Integer userId, String deliveryImageUrl) {
         Integer riderId = resolveRiderIdFromUserId(userId);
         Order order = validateRiderOrderOwnership(orderId, riderId);
 
@@ -244,7 +245,12 @@ public class RiderService {
         order.setOrderStatus("delivered");
         orderRepository.save(order);
 
-        writeStatusLog(orderId, oldStatus, "delivered", userId, "骑手已送达");
+        // 构建送达备注（包含图片URL）
+        String remark = "骑手已送达";
+        if (deliveryImageUrl != null && !deliveryImageUrl.isBlank()) {
+            remark += " [IMAGE:" + deliveryImageUrl + "]";
+        }
+        writeStatusLog(orderId, oldStatus, "delivered", userId, remark);
 
         // 自动累加完成单数
         RiderDetail rider = getOrCreateRiderDetail(userId);
@@ -454,6 +460,9 @@ public class RiderService {
                 .collect(Collectors.toList());
         resp.setStatusLogs(logEntries);
 
+        // 提取送达图片URL
+        resp.setDeliveryImageUrl(extractDeliveryImageUrl(statusLogs));
+
         return resp;
     }
 
@@ -476,6 +485,29 @@ public class RiderService {
         resp.setCreatedAt(order.getCreatedAt());
         resp.setUpdatedAt(order.getUpdatedAt());
         return resp;
+    }
+
+    /**
+     * 从状态日志中提取送达图片URL
+     */
+    private String extractDeliveryImageUrl(List<OrderStatusLog> statusLogs) {
+        if (statusLogs == null) return null;
+        return statusLogs.stream()
+                .filter(log -> "delivered".equals(log.getToStatus()) && log.getRemark() != null)
+                .map(log -> {
+                    String remark = log.getRemark();
+                    int start = remark.indexOf("[IMAGE:");
+                    if (start >= 0) {
+                        int end = remark.indexOf("]", start);
+                        if (end > start) {
+                            return remark.substring(start + 7, end);
+                        }
+                    }
+                    return null;
+                })
+                .filter(url -> url != null)
+                .reduce((first, second) -> second)  // 取最后一条
+                .orElse(null);
     }
 
     /**
