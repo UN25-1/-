@@ -1,0 +1,105 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: #f5f7fa;
+  color: #303133;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 统计卡片样式 */
+.stat-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  transition: transform 0.2s;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+}
+.stat-card .stat-title {
+  font-size: 14px;
+  color: #909399;
+  margin-bottom: 8px;
+}
+.stat-card .stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #303133;
+}
+.stat-card .stat-unit {
+  font-size: 14px;
+  font-weight: 400;
+  color: #909399;
+  margin-left: 4px;
+}
+
+/* 图表容器 */
+.chart-container {
+  width: 100%;
+  height: 360px;
+}
+
+/* 登录页 */
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.login-box {
+  width: 420px;
+  padding: 40px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.login-box h1 {
+  font-size: 24px;
+  color: #303133;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.login-box .subtitle {
+  text-align: center;
+  color: #909399;
+  font-size: 14px;
+  margin-bottom: 32px;
+}
+
+/* 资质证照图片预览 */
+.doc-image {
+  width: 120px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid #ebeef5;
+  transition: border-color 0.2s;
+}
+.doc-image:hover {
+  border-color: #409eff;
+}
